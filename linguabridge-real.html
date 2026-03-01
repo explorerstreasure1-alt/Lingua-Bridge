@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>LinguaBridge — Gerçek Zamanlı Çeviri</title>
+  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@300;400;500&display=swap');
+
+    :root {
+      --bg: #080c14;
+      --card: #0e1420;
+      --border: rgba(99,179,237,0.15);
+      --accent: #38bdf8;
+      --accent2: #818cf8;
+      --green: #34d399;
+      --red: #f87171;
+      --text: #f0f6ff;
+      --muted: #8899aa;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg); color: var(--text);
+      font-family: 'DM Sans', sans-serif;
+      min-height: 100vh; display: flex; flex-direction: column; align-items: center;
+      padding: 20px 16px 40px;
+    }
+
+    body::before {
+      content: ''; position: fixed; inset: 0; z-index: -1;
+      background:
+        radial-gradient(ellipse at 80% 20%, rgba(56,189,248,0.08) 0%, transparent 50%),
+        radial-gradient(ellipse at 20% 80%, rgba(129,140,248,0.07) 0%, transparent 50%);
+    }
+
+    h1 {
+      font-family: 'Syne', sans-serif; font-size: 26px; font-weight: 800;
+      background: linear-gradient(135deg, #fff 30%, var(--accent));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text; text-align: center; margin-bottom: 4px;
+    }
+    .subtitle { color: var(--muted); font-size: 13px; text-align: center; margin-bottom: 24px; }
+
+    .card {
+      width: 100%; max-width: 480px;
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 20px; padding: 24px; margin-bottom: 16px;
+      position: relative; overflow: hidden;
+    }
+    .card::before {
+      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(56,189,248,0.4), transparent);
+    }
+
+    .card-title {
+      font-family: 'Syne', sans-serif; font-size: 13px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted);
+      margin-bottom: 16px;
+    }
+
+    /* Language selects */
+    .lang-row { display: flex; align-items: center; gap: 12px; }
+    .lang-group { flex: 1; }
+    .lang-group label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 6px; }
+    select {
+      width: 100%; padding: 11px 14px; border-radius: 12px;
+      background: rgba(255,255,255,0.05); border: 1px solid var(--border);
+      color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 14px;
+      cursor: pointer; outline: none; transition: border-color 0.2s;
+    }
+    select:focus { border-color: var(--accent); }
+    .swap-btn {
+      width: 40px; height: 40px; border-radius: 50%; background: rgba(56,189,248,0.1);
+      border: 1px solid var(--border); color: var(--accent); font-size: 18px;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; margin-top: 18px; transition: all 0.2s;
+    }
+    .swap-btn:hover { background: rgba(56,189,248,0.2); transform: rotate(180deg); }
+
+    /* Connection area */
+    .conn-row { display: flex; gap: 10px; }
+    input[type=text] {
+      flex: 1; padding: 12px 16px; border-radius: 12px;
+      background: rgba(255,255,255,0.05); border: 1px solid var(--border);
+      color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 14px;
+      outline: none; transition: border-color 0.2s;
+    }
+    input[type=text]:focus { border-color: var(--accent); }
+    input[type=text]::placeholder { color: var(--muted); }
+
+    .btn {
+      padding: 12px 20px; border-radius: 12px; border: none; cursor: pointer;
+      font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 500;
+      transition: all 0.2s; white-space: nowrap;
+    }
+    .btn-primary { background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; box-shadow: 0 4px 16px rgba(56,189,248,0.25); }
+    .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 24px rgba(56,189,248,0.4); }
+    .btn-ghost { background: rgba(255,255,255,0.06); border: 1px solid var(--border); color: var(--text); }
+    .btn-ghost:hover { background: rgba(255,255,255,0.1); }
+    .btn-red { background: rgba(248,113,113,0.15); border: 1px solid rgba(248,113,113,0.3); color: var(--red); }
+    .btn-red:hover { background: rgba(248,113,113,0.25); }
+    .btn:active { transform: scale(0.97); }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none !important; }
+
+    /* My ID display */
+    .my-id-box {
+      background: rgba(56,189,248,0.07); border: 1px solid rgba(56,189,248,0.2);
+      border-radius: 12px; padding: 14px 16px;
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      margin-bottom: 14px;
+    }
+    .my-id-box .id-text {
+      font-family: 'Syne', sans-serif; font-weight: 700; font-size: 22px;
+      letter-spacing: 3px; color: var(--accent);
+    }
+    .copy-btn {
+      padding: 8px 14px; border-radius: 8px; background: rgba(56,189,248,0.15);
+      border: 1px solid rgba(56,189,248,0.3); color: var(--accent);
+      font-size: 13px; cursor: pointer; transition: all 0.2s;
+    }
+    .copy-btn:hover { background: rgba(56,189,248,0.25); }
+
+    /* Status indicator */
+    .status-bar {
+      display: flex; align-items: center; gap: 8px; padding: 10px 14px;
+      border-radius: 10px; font-size: 13px; margin-bottom: 14px;
+    }
+    .status-bar.waiting { background: rgba(255,255,255,0.04); border: 1px solid var(--border); color: var(--muted); }
+    .status-bar.connecting { background: rgba(251,191,36,0.08); border: 1px solid rgba(251,191,36,0.2); color: #fbbf24; }
+    .status-bar.connected { background: rgba(52,211,153,0.08); border: 1px solid rgba(52,211,153,0.2); color: var(--green); }
+    .status-bar.error { background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.2); color: var(--red); }
+
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .waiting .status-dot { background: var(--muted); }
+    .connecting .status-dot { background: #fbbf24; animation: pulse 1s infinite; }
+    .connected .status-dot { background: var(--green); }
+    .error .status-dot { background: var(--red); }
+
+    /* Mic button */
+    .mic-section { text-align: center; padding: 10px 0; }
+    .mic-big {
+      width: 80px; height: 80px; border-radius: 50%; border: none; cursor: pointer;
+      font-size: 32px; display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 12px; transition: all 0.2s; position: relative;
+      background: linear-gradient(135deg, rgba(56,189,248,0.15), rgba(129,140,248,0.15));
+      border: 2px solid var(--border); color: #fff;
+    }
+    .mic-big:hover { transform: scale(1.05); }
+    .mic-big.recording {
+      background: linear-gradient(135deg, rgba(248,113,113,0.2), rgba(248,113,113,0.1));
+      border-color: rgba(248,113,113,0.5); animation: pulseBig 1.2s ease-in-out infinite;
+    }
+    .mic-big:disabled { opacity: 0.3; cursor: not-allowed; }
+    .mic-label { font-size: 13px; color: var(--muted); }
+
+    /* Conversation */
+    .conv-box {
+      height: 280px; overflow-y: auto; padding: 14px;
+      background: rgba(0,0,0,0.2); border-radius: 12px; border: 1px solid var(--border);
+      display: flex; flex-direction: column; gap: 12px; scroll-behavior: smooth;
+    }
+    .conv-box::-webkit-scrollbar { width: 4px; }
+    .conv-box::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    .msg { max-width: 85%; }
+    .msg.me { align-self: flex-end; }
+    .msg.them { align-self: flex-start; }
+
+    .msg-label { font-size: 10px; color: var(--muted); margin-bottom: 4px; }
+    .msg.me .msg-label { text-align: right; }
+
+    .msg-bubble {
+      padding: 10px 14px; border-radius: 14px; font-size: 14px; line-height: 1.5;
+    }
+    .msg.me .msg-bubble {
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      color: #fff; border-bottom-right-radius: 4px;
+    }
+    .msg.them .msg-bubble {
+      background: var(--card); border: 1px solid var(--border);
+      border-bottom-left-radius: 4px;
+    }
+
+    .msg-original {
+      font-size: 11px; margin-top: 5px; color: rgba(255,255,255,0.55);
+      font-style: italic;
+    }
+    .msg.them .msg-original { color: var(--muted); }
+
+    .empty-conv {
+      flex: 1; display: flex; flex-direction: column; align-items: center;
+      justify-content: center; color: var(--muted); font-size: 13px; gap: 8px;
+    }
+    .empty-conv span:first-child { font-size: 32px; }
+
+    /* Controls row */
+    .ctrl-row { display: flex; gap: 10px; margin-top: 14px; }
+    .ctrl-row .btn { flex: 1; }
+
+    /* Waveform */
+    .waveform { display: flex; align-items: center; justify-content: center; gap: 3px; height: 24px; margin: 6px 0; }
+    .w-bar { width: 3px; background: var(--red); border-radius: 2px; opacity: 0.8; }
+
+    /* TTS toggle */
+    .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; }
+    .toggle-row span { font-size: 13px; color: var(--text); }
+    .toggle {
+      width: 44px; height: 24px; border-radius: 12px; cursor: pointer;
+      background: rgba(255,255,255,0.1); border: 1px solid var(--border);
+      position: relative; transition: background 0.2s;
+    }
+    .toggle.on { background: var(--green); border-color: var(--green); }
+    .toggle::after {
+      content: ''; position: absolute; width: 18px; height: 18px; border-radius: 50%;
+      background: #fff; top: 2px; left: 2px; transition: left 0.2s;
+    }
+    .toggle.on::after { left: 22px; }
+
+    /* Alert */
+    .alert { padding: 12px 16px; border-radius: 12px; font-size: 13px; margin-bottom: 12px; }
+    .alert-warn { background: rgba(251,191,36,0.08); border: 1px solid rgba(251,191,36,0.2); color: #fbbf24; }
+    .alert-info { background: rgba(56,189,248,0.08); border: 1px solid rgba(56,189,248,0.15); color: var(--accent); }
+
+    @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+    @keyframes pulseBig { 0%,100% { box-shadow:0 0 0 0 rgba(248,113,113,0.4); } 50% { box-shadow:0 0 0 20px rgba(248,113,113,0); } }
+    @keyframes fadeUp { from { opacity:0; transform:translateY(14px); } to { opacity:1; transform:translateY(0); } }
+
+    .card { animation: fadeUp 0.4s ease forwards; }
+    .card:nth-child(2) { animation-delay: 0.1s; }
+    .card:nth-child(3) { animation-delay: 0.2s; }
+
+    #toast {
+      position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px);
+      background: var(--card); border: 1px solid var(--border); border-radius: 50px;
+      padding: 10px 22px; font-size: 13px; z-index: 999; opacity: 0;
+      transition: all 0.3s; pointer-events: none; white-space: nowrap;
+    }
+    #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  </style>
+</head>
+<body>
+
+<h1>🌐 LinguaBridge</h1>
+<p class="subtitle">Gerçek zamanlı sesli çeviri · Chrome önerilir</p>
+
+<!-- BROWSER CHECK -->
+<div class="alert alert-warn" id="browser-warn" style="display:none;width:100%;max-width:480px;">
+  ⚠️ Sesli tanıma için <strong>Chrome</strong> veya <strong>Edge</strong> kullan. Şu anki tarayıcı desteklemeyebilir.
+</div>
+
+<!-- 1. DİL SEÇİMİ -->
+<div class="card" style="width:100%;max-width:480px;">
+  <p class="card-title">🗣️ Dil Ayarları</p>
+
+  <div class="lang-row">
+    <div class="lang-group">
+      <label>Senin dilin</label>
+      <select id="my-lang">
+        <option value="tr-TR" data-short="TR" data-flag="🇹🇷">🇹🇷 Türkçe</option>
+        <option value="en-US" data-short="EN" data-flag="🇬🇧">🇬🇧 İngilizce</option>
+        <option value="ja-JP" data-short="JA" data-flag="🇯🇵">🇯🇵 Japonca</option>
+        <option value="ru-RU" data-short="RU" data-flag="🇷🇺">🇷🇺 Rusça</option>
+        <option value="de-DE" data-short="DE" data-flag="🇩🇪">🇩🇪 Almanca</option>
+        <option value="fr-FR" data-short="FR" data-flag="🇫🇷">🇫🇷 Fransızca</option>
+        <option value="es-ES" data-short="ES" data-flag="🇪🇸">🇪🇸 İspanyolca</option>
+        <option value="ar-SA" data-short="AR" data-flag="🇸🇦">🇸🇦 Arapça</option>
+        <option value="zh-CN" data-short="ZH" data-flag="🇨🇳">🇨🇳 Çince</option>
+      </select>
+    </div>
+    <button class="swap-btn" onclick="swapLangs()" title="Dilleri değiştir">⇄</button>
+    <div class="lang-group">
+      <label>Arkadaşının dili</label>
+      <select id="their-lang">
+        <option value="en-US" data-short="EN" data-flag="🇬🇧">🇬🇧 İngilizce</option>
+        <option value="tr-TR" data-short="TR" data-flag="🇹🇷">🇹🇷 Türkçe</option>
+        <option value="ja-JP" data-short="JA" data-flag="🇯🇵">🇯🇵 Japonca</option>
+        <option value="ru-RU" data-short="RU" data-flag="🇷🇺">🇷🇺 Rusça</option>
+        <option value="de-DE" data-short="DE" data-flag="🇩🇪">🇩🇪 Almanca</option>
+        <option value="fr-FR" data-short="FR" data-flag="🇫🇷">🇫🇷 Fransızca</option>
+        <option value="es-ES" data-short="ES" data-flag="🇪🇸">🇪🇸 İspanyolca</option>
+        <option value="ar-SA" data-short="AR" data-flag="🇸🇦">🇸🇦 Arapça</option>
+        <option value="zh-CN" data-short="ZH" data-flag="🇨🇳">🇨🇳 Çince</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="toggle-row" style="margin-top:14px;">
+    <span>🔊 Çeviriyi sesli oku (TTS)</span>
+    <div class="toggle on" id="tts-toggle" onclick="this.classList.toggle('on')"></div>
+  </div>
+</div>
+
+<!-- 2. BAĞLANTI -->
+<div class="card" style="width:100%;max-width:480px;">
+  <p class="card-title">📡 Bağlantı</p>
+
+  <div class="my-id-box">
+    <div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:4px;">Senin Bağlantı Kodun</div>
+      <div class="id-text" id="my-peer-id">—</div>
+    </div>
+    <button class="copy-btn" onclick="copyMyId()" id="copy-btn">📋 Kopyala</button>
+  </div>
+
+  <p style="font-size:12px;color:var(--muted);margin-bottom:12px;">
+    Bu kodu arkadaşına WhatsApp/mesaj ile gönder. Arkadaşın da bu sayfayı açıp kodunu girsin.
+  </p>
+
+  <div id="status-bar" class="status-bar waiting">
+    <div class="status-dot"></div>
+    <span id="status-text">Hazırlanıyor...</span>
+  </div>
+
+  <div class="conn-row">
+    <input type="text" id="friend-id" placeholder="Arkadaşının kodunu buraya yaz..." maxlength="6"/>
+    <button class="btn btn-primary" id="connect-btn" onclick="connectToFriend()" disabled>Bağlan</button>
+  </div>
+
+  <div id="connected-controls" style="display:none;margin-top:12px;">
+    <button class="btn btn-red" style="width:100%;" onclick="disconnect()">🔴 Bağlantıyı Kes</button>
+  </div>
+</div>
+
+<!-- 3. SOHBET / MİKROFON -->
+<div class="card" style="width:100%;max-width:480px;">
+  <p class="card-title">💬 Sohbet</p>
+
+  <!-- Conversation -->
+  <div class="conv-box" id="conv-box">
+    <div class="empty-conv" id="empty-msg">
+      <span>🎙️</span>
+      <span>Bağlandıktan sonra mikrofona basılı tut ve konuş</span>
+    </div>
+  </div>
+
+  <!-- Waveform -->
+  <div class="waveform" id="waveform" style="display:none;"></div>
+
+  <!-- Mic -->
+  <div class="mic-section" style="margin-top:14px;">
+    <button class="mic-big" id="mic-btn"
+      onmousedown="startListening()" onmouseup="stopListening()"
+      ontouchstart="startListening(event)" ontouchend="stopListening()"
+      disabled>
+      🎙️
+    </button>
+    <p class="mic-label" id="mic-label">Bağlan ve ardından mikrofona bas konuş</p>
+  </div>
+
+  <!-- Text input fallback -->
+  <div class="ctrl-row" style="margin-top:12px;">
+    <input type="text" id="text-input" placeholder="Yazarak da çeviri yapabilirsin..." onkeydown="if(event.key==='Enter')sendText()"/>
+    <button class="btn btn-ghost" onclick="sendText()" style="flex:0;padding:12px 16px;">➤</button>
+  </div>
+</div>
+
+<!-- NASIL KULLANILIR -->
+<div class="alert alert-info" style="width:100%;max-width:480px;font-size:12px;line-height:1.7;">
+  <strong>📖 Nasıl çalışır?</strong><br>
+  1. Sen bu sayfayı aç → kodunu kopyala<br>
+  2. Arkadaşın da bu sayfayı açsın<br>
+  3. Kodları birbirinize gönderin ve "Bağlan"a basın<br>
+  4. Mikrofona basılı tutarak konuş → anında çevrilir!
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ─── CONFIG ───────────────────────────────────────────────
+const PEER_SERVER = { host: '0.peerjs.com', port: 443, path: '/', secure: true };
+
+// ─── STATE ───────────────────────────────────────────────
+let peer = null;
+let conn = null;
+let recognition = null;
+let isListening = false;
+let myId = null;
+
+// ─── INIT ───────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  // Browser check
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    document.getElementById('browser-warn').style.display = 'block';
+  }
+
+  initPeer();
+  buildWaveform();
+
+  // Enable connect btn when typing
+  document.getElementById('friend-id').addEventListener('input', function() {
+    document.getElementById('connect-btn').disabled = this.value.trim().length < 4;
+  });
+});
+
+// ─── PEER INIT ───────────────────────────────────────────
+function initPeer() {
+  setStatus('connecting', 'Sunucuya bağlanıyor...');
+
+  // Generate simple 6-char code
+  const code = Math.random().toString(36).substr(2, 6).toUpperCase();
+
+  try {
+    peer = new Peer(code, PEER_SERVER);
+  } catch(e) {
+    // Fallback: try without custom server
+    peer = new Peer(code);
+  }
+
+  peer.on('open', (id) => {
+    myId = id;
+    document.getElementById('my-peer-id').textContent = id;
+    document.getElementById('copy-btn').disabled = false;
+    setStatus('waiting', 'Hazır — arkadaşının bağlanmasını bekliyor');
+  });
+
+  peer.on('connection', (c) => {
+    conn = c;
+    setupConnection();
+    setStatus('connected', `✅ Bağlantı kuruldu!`);
+    showConnectedUI();
+    showToast('✅ Arkadaşın bağlandı!');
+  });
+
+  peer.on('error', (err) => {
+    console.error('PeerJS error:', err);
+    if (err.type === 'peer-unavailable') {
+      setStatus('error', '❌ Bu kod bulunamadı, kontrol et');
+      showToast('❌ Kod bulunamadı!');
+    } else if (err.type === 'network' || err.type === 'server-error') {
+      setStatus('error', '❌ Sunucuya bağlanılamadı, sayfayı yenile');
+    } else {
+      setStatus('error', `Hata: ${err.type}`);
+    }
+  });
+
+  peer.on('disconnected', () => {
+    setStatus('error', '⚠️ Bağlantı kesildi');
+  });
+}
+
+// ─── CONNECT ─────────────────────────────────────────────
+function connectToFriend() {
+  const friendId = document.getElementById('friend-id').value.trim().toUpperCase();
+  if (!friendId || !peer) return;
+
+  setStatus('connecting', `${friendId} koduna bağlanıyor...`);
+  conn = peer.connect(friendId, { reliable: true });
+  setupConnection();
+}
+
+function setupConnection() {
+  conn.on('open', () => {
+    setStatus('connected', `✅ Bağlantı kuruldu!`);
+    showConnectedUI();
+    showToast('✅ Bağlandınız! Konuşabilirsiniz.');
+  });
+
+  conn.on('data', (data) => {
+    // Receive translated message from friend
+    receiveMessage(data);
+  });
+
+  conn.on('close', () => {
+    setStatus('waiting', 'Bağlantı kapandı');
+    showToast('🔴 Bağlantı kesildi');
+    hideConnectedUI();
+  });
+
+  conn.on('error', (err) => {
+    setStatus('error', 'Bağlantı hatası');
+    console.error(err);
+  });
+}
+
+function showConnectedUI() {
+  document.getElementById('connected-controls').style.display = 'block';
+  document.getElementById('mic-btn').disabled = false;
+  document.getElementById('mic-label').textContent = 'Basılı tut ve konuş';
+  document.getElementById('connect-btn').disabled = true;
+  document.getElementById('friend-id').disabled = true;
+  clearEmptyMsg();
+}
+
+function hideConnectedUI() {
+  document.getElementById('connected-controls').style.display = 'none';
+  document.getElementById('mic-btn').disabled = true;
+  document.getElementById('mic-label').textContent = 'Bağlan ve ardından mikrofona bas konuş';
+  document.getElementById('connect-btn').disabled = false;
+  document.getElementById('friend-id').disabled = false;
+}
+
+function disconnect() {
+  if (conn) conn.close();
+  setStatus('waiting', 'Hazır — yeni bağlantı bekliyor');
+  hideConnectedUI();
+  showToast('Bağlantı kesildi');
+}
+
+// ─── SPEECH RECOGNITION ──────────────────────────────────
+function startListening(e) {
+  if (e) e.preventDefault();
+  if (!conn || !conn.open) { showToast('Önce bağlan!'); return; }
+
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) { showToast('❌ Tarayıcın ses tanımayı desteklemiyor. Chrome kullan.'); return; }
+
+  const myLang = document.getElementById('my-lang').value;
+
+  recognition = new SpeechRecognition();
+  recognition.lang = myLang;
+  recognition.continuous = false;
+  recognition.interimResults = true;
+
+  recognition.onstart = () => {
+    isListening = true;
+    document.getElementById('mic-btn').classList.add('recording');
+    document.getElementById('mic-btn').textContent = '🔴';
+    document.getElementById('mic-label').textContent = 'Dinleniyor...';
+    document.getElementById('waveform').style.display = 'flex';
+    animateWaveform(true);
+  };
+
+  recognition.onresult = (event) => {
+    let interim = '';
+    let final = '';
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      if (event.results[i].isFinal) final += event.results[i][0].transcript;
+      else interim += event.results[i][0].transcript;
+    }
+    if (final) {
+      processAndSend(final.trim());
+    }
+  };
+
+  recognition.onerror = (e) => {
+    console.error('Speech error:', e.error);
+    if (e.error === 'not-allowed') showToast('❌ Mikrofon izni verilmedi!');
+    else if (e.error === 'no-speech') showToast('Ses algılanamadı, tekrar dene');
+    stopListeningUI();
+  };
+
+  recognition.onend = () => { stopListeningUI(); };
+
+  recognition.start();
+}
+
+function stopListening(e) {
+  if (e) e.preventDefault();
+  if (recognition) { try { recognition.stop(); } catch(e) {} }
+}
+
+function stopListeningUI() {
+  isListening = false;
+  const btn = document.getElementById('mic-btn');
+  btn.classList.remove('recording');
+  btn.textContent = '🎙️';
+  document.getElementById('mic-label').textContent = 'Basılı tut ve konuş';
+  document.getElementById('waveform').style.display = 'none';
+  animateWaveform(false);
+}
+
+// ─── TRANSLATE & SEND ────────────────────────────────────
+async function processAndSend(originalText) {
+  if (!originalText) return;
+
+  const myLangCode = document.getElementById('my-lang').value.split('-')[0];
+  const theirLangCode = document.getElementById('their-lang').value.split('-')[0];
+
+  // Show my message locally (original)
+  addMessage('me', originalText, null, myLangCode);
+
+  // Translate
+  showToast('Çevriliyor...');
+  const translated = await translate(originalText, myLangCode, theirLangCode);
+
+  // Update my message with translation shown
+  addMessage('me', originalText, translated, myLangCode, theirLangCode, true);
+
+  // Send to friend
+  if (conn && conn.open) {
+    conn.send({
+      original: originalText,
+      translated: translated,
+      fromLang: myLangCode,
+      toLang: theirLangCode
+    });
+  }
+}
+
+// ─── RECEIVE ─────────────────────────────────────────────
+function receiveMessage(data) {
+  addMessage('them', data.translated, data.original, data.toLang, data.fromLang, false);
+
+  // TTS - read translated text
+  if (document.getElementById('tts-toggle').classList.contains('on')) {
+    speak(data.translated, data.toLang);
+  }
+
+  showToast('📨 Mesaj alındı');
+}
+
+// ─── TRANSLATION API (MyMemory - free, no key) ──────────
+async function translate(text, from, to) {
+  if (from === to) return text;
+  try {
+    const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${from}|${to}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    if (data.responseStatus === 200) {
+      return data.responseData.translatedText;
+    }
+    return text + ' [çeviri hatası]';
+  } catch (e) {
+    console.error('Translation error:', e);
+    return text + ' [çeviri hatası]';
+  }
+}
+
+// ─── TTS ─────────────────────────────────────────────────
+function speak(text, langCode) {
+  if (!window.speechSynthesis) return;
+  window.speechSynthesis.cancel();
+  const utter = new SpeechSynthesisUtterance(text);
+  utter.lang = document.getElementById('their-lang').value;
+  utter.rate = 0.95;
+  window.speechSynthesis.speak(utter);
+}
+
+// ─── TEXT INPUT ──────────────────────────────────────────
+async function sendText() {
+  if (!conn || !conn.open) { showToast('Önce bağlan!'); return; }
+  const inp = document.getElementById('text-input');
+  const text = inp.value.trim();
+  if (!text) return;
+  inp.value = '';
+  await processAndSend(text);
+}
+
+// ─── UI HELPERS ──────────────────────────────────────────
+function clearEmptyMsg() {
+  const empty = document.getElementById('empty-msg');
+  if (empty) empty.remove();
+}
+
+function addMessage(side, mainText, subText, mainLang, subLang, replace) {
+  const box = document.getElementById('conv-box');
+
+  // If replace, remove last 'me' message
+  if (replace && side === 'me') {
+    const last = box.querySelector('.msg.me:last-child');
+    if (last) last.remove();
+  }
+
+  const langFlags = { tr:'🇹🇷',en:'🇬🇧',ja:'🇯🇵',ru:'🇷🇺',de:'🇩🇪',fr:'🇫🇷',es:'🇪🇸',ar:'🇸🇦',zh:'🇨🇳' };
+  const flag = langFlags[mainLang] || '🌐';
+  const subFlag = subLang ? (langFlags[subLang] || '🌐') : '';
+
+  const div = document.createElement('div');
+  div.className = `msg ${side}`;
+  div.innerHTML = `
+    <div class="msg-label">${side === 'me' ? 'Sen' : 'Arkadaşın'} ${flag}</div>
+    <div class="msg-bubble">
+      ${escHtml(mainText)}
+      ${subText ? `<div class="msg-original">${subFlag} ${escHtml(subText)}</div>` : ''}
+    </div>`;
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+}
+
+function escHtml(t) {
+  const d = document.createElement('div');
+  d.appendChild(document.createTextNode(t));
+  return d.innerHTML;
+}
+
+function setStatus(type, text) {
+  const bar = document.getElementById('status-bar');
+  bar.className = `status-bar ${type}`;
+  document.getElementById('status-text').textContent = text;
+}
+
+function copyMyId() {
+  if (!myId) return;
+  navigator.clipboard.writeText(myId).then(() => showToast('✅ Kod kopyalandı!'));
+}
+
+function swapLangs() {
+  const a = document.getElementById('my-lang');
+  const b = document.getElementById('their-lang');
+  const tmp = a.value;
+  a.value = b.value;
+  b.value = tmp;
+  showToast('Diller değiştirildi');
+}
+
+// ─── WAVEFORM ────────────────────────────────────────────
+function buildWaveform() {
+  const el = document.getElementById('waveform');
+  for (let i = 0; i < 20; i++) {
+    const bar = document.createElement('div');
+    bar.className = 'w-bar';
+    bar.style.height = '4px';
+    el.appendChild(bar);
+  }
+}
+
+let waveAnimFrame;
+function animateWaveform(on) {
+  const bars = document.querySelectorAll('.w-bar');
+  if (!on) {
+    cancelAnimationFrame(waveAnimFrame);
+    bars.forEach(b => b.style.height = '4px');
+    return;
+  }
+  function frame() {
+    bars.forEach(b => {
+      b.style.height = (4 + Math.random() * 20) + 'px';
+    });
+    waveAnimFrame = setTimeout(frame, 80);
+  }
+  frame();
+}
+
+// ─── TOAST ───────────────────────────────────────────────
+function showToast(msg, dur = 2200) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._t);
+  t._t = setTimeout(() => t.classList.remove('show'), dur);
+}
+</script>
+</body>
+</html>
