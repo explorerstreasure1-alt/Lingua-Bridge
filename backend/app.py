@@ -13,7 +13,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from faster_whisper import WhisperModel
 
-# Loglama ayarları
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("linguabridge")
 
@@ -26,24 +25,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Whisper config ─────────────────────────────
 WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL", "tiny")
 DEVICE             = os.getenv("DEVICE", "cpu")
 COMPUTE_TYPE       = "int8" if DEVICE == "cpu" else "float16"
 
 whisper_model: WhisperModel = None
-model_ready = False          # ← yeni flag
+model_ready = False
+
 
 @app.on_event("startup")
 async def startup():
-    """Modeli arka planda yükle — healthcheck bloklanmasın."""
     asyncio.create_task(_load_model_background())
+
 
 async def _load_model_background():
     global whisper_model, model_ready
     log.info(f"🎙 Whisper '{WHISPER_MODEL_SIZE}' arka planda yükleniyor...")
     try:
-        # CPU-bound işi thread pool'a at, event loop'u bloklamasın
         loop = asyncio.get_event_loop()
         whisper_model = await loop.run_in_executor(
             None,
@@ -59,17 +57,17 @@ async def _load_model_background():
     except Exception as e:
         log.error(f"❌ Whisper yüklenemedi: {e}")
 
-# ── SAĞLIK KONTROLÜ ────────────────────────────
+
 @app.get("/health")
 async def health():
-    # Railway sadece 200 bekliyor; model durumunu da ekledik (opsiyonel)
-    return {"status": "ok", "model_ready": model_ready}
+    return {"status": "ok"}
+
 
 @app.get("/")
 async def root():
     return {"message": "LinguaBridge Backend is running"}
 
-# ── Transkripsiyon ──────────────────────────────
+
 @app.post("/transcribe")
 async def transcribe(
     audio: UploadFile = File(...),
@@ -107,7 +105,7 @@ async def transcribe(
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
 
-# ── Çeviri motoru ───────────────────────────────
+
 async def do_translate(text: str, from_lang: str, to_lang: str) -> str:
     if from_lang == to_lang or not text:
         return text
@@ -122,7 +120,7 @@ async def do_translate(text: str, from_lang: str, to_lang: str) -> str:
         except Exception:
             return text
 
-# ── SUNUCU BAŞLATMA ─────────────────────────────
+
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8080))
