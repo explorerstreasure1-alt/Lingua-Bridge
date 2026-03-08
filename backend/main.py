@@ -1,7 +1,6 @@
 """
 LinguaBridge Backend - Railway Optimized
 """
-
 import asyncio
 import io
 import json
@@ -71,7 +70,7 @@ async def transcribe(
 
     start = time.time()
     audio_bytes = await audio.read()
-    
+
     with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as tmp:
         tmp.write(audio_bytes)
         tmp_path = tmp.name
@@ -80,7 +79,7 @@ async def transcribe(
         segments, info = whisper_model.transcribe(tmp_path, beam_size=3)
         transcript = " ".join(seg.text.strip() for seg in segments).strip()
         translated = await do_translate(transcript, source_lang, target_lang)
-        
+
         return {
             "transcript": transcript,
             "translated": translated,
@@ -94,8 +93,10 @@ async def transcribe(
 async def do_translate(text: str, from_lang: str, to_lang: str) -> str:
     if from_lang == to_lang or not text:
         return text
+
     url = "https://api.mymemory.translated.net/get"
     params = {"q": text, "langpair": f"{from_lang}|{to_lang}"}
+
     async with httpx.AsyncClient(timeout=10.0) as client:
         try:
             r = await client.get(url, params=params)
@@ -106,7 +107,9 @@ async def do_translate(text: str, from_lang: str, to_lang: str) -> str:
 # ── SUNUCU BAŞLATMA (En kritik kısım) ──────────
 if __name__ == "__main__":
     import uvicorn
+
     # Railway'in verdiği dinamik portu yakala
     port = int(os.environ.get("PORT", 8080))
+
     # 0.0.0.0 hostu dış dünyaya açılmak için zorunludur
     uvicorn.run(app, host="0.0.0.0", port=port)
