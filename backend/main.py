@@ -2,16 +2,13 @@
 LinguaBridge Backend - Railway Optimized
 """
 import asyncio
-import io
-import json
 import logging
 import os
 import tempfile
 import time
-from pathlib import Path
 
 import httpx
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from faster_whisper import WhisperModel
@@ -22,7 +19,6 @@ log = logging.getLogger("linguabridge")
 
 app = FastAPI(title="LinguaBridge API")
 
-# CORS ayarları - Frontend'in bağlanabilmesi için şart
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -30,43 +26,61 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Whisper model yükleme ─────────────────────
+# ── Whisper config ─────────────────────────────
 WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL", "tiny")
 DEVICE             = os.getenv("DEVICE", "cpu")
 COMPUTE_TYPE       = "int8" if DEVICE == "cpu" else "float16"
 
 whisper_model: WhisperModel = None
+model_ready = False          # ← yeni flag
 
 @app.on_event("startup")
 async def startup():
-    global whisper_model
-    log.info(f"🎙 Whisper '{WHISPER_MODEL_SIZE}' yükleniyor...")
-    whisper_model = WhisperModel(
-        WHISPER_MODEL_SIZE,
-        device=DEVICE,
-        compute_type=COMPUTE_TYPE,
-        download_root="/app/models"
-    )
-    log.info("✅ Whisper hazır!")
+    """Modeli arka planda yükle — healthcheck bloklanmasın."""
+    asyncio.create_task(_load_model_background())
 
-# ── SAĞLIK KONTROLÜ (Railway bu rotayı bekliyor) ──
+async def _load_model_background():
+    global whisper_model, model_ready
+    log.info(f"🎙 Whisper '{WHISPER_MODEL_SIZE}' arka planda yükleniyor...")
+    try:
+        # CPU-bound işi thread pool'a at, event loop'u bloklamasın
+        loop = asyncio.get_event_loop()
+        whisper_model = await loop.run_in_executor(
+            None,
+            lambda: WhisperModel(
+                WHISPER_MODEL_SIZE,
+                device=DEVICE,
+                compute_type=COMPUTE_TYPE,
+                download_root="/app/models",
+            )
+        )
+        model_ready = True
+        log.info("✅ Whisper hazır!")
+    except Exception as e:
+        log.error(f"❌ Whisper yüklenemedi: {e}")
+
+# ── SAĞLIK KONTROLÜ ────────────────────────────
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    # Railway sadece 200 bekliyor; model durumunu da ekledik (opsiyonel)
+    return {"status": "ok", "model_ready": model_ready}
 
 @app.get("/")
 async def root():
     return {"message": "LinguaBridge Backend is running"}
 
-# ── Ana ses işleme endpoint'i ───────────────────
+# ── Transkripsiyon ──────────────────────────────
 @app.post("/transcribe")
 async def transcribe(
     audio: UploadFile = File(...),
     source_lang: str  = Form("tr"),
     target_lang: str  = Form("en"),
 ):
-    if not whisper_model:
-        return JSONResponse({"error": "Model yükleniyor"}, status_code=503)
+    if not model_ready:
+        return JSONResponse(
+            {"error": "Model henüz hazır değil, lütfen bekleyin"},
+            status_code=503
+        )
 
     start = time.time()
     audio_bytes = await audio.read()
@@ -76,7 +90,11 @@ async def transcribe(
         tmp_path = tmp.name
 
     try:
-        segments, info = whisper_model.transcribe(tmp_path, beam_size=3)
+        loop = asyncio.get_event_loop()
+        segments, _ = await loop.run_in_executor(
+            None,
+            lambda: whisper_model.transcribe(tmp_path, beam_size=3)
+        )
         transcript = " ".join(seg.text.strip() for seg in segments).strip()
         translated = await do_translate(transcript, source_lang, target_lang)
 
@@ -89,7 +107,7 @@ async def transcribe(
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
 
-# ── Çeviri motoru ─────────────────────────────
+# ── Çeviri motoru ───────────────────────────────
 async def do_translate(text: str, from_lang: str, to_lang: str) -> str:
     if from_lang == to_lang or not text:
         return text
@@ -101,15 +119,11 @@ async def do_translate(text: str, from_lang: str, to_lang: str) -> str:
         try:
             r = await client.get(url, params=params)
             return r.json()["responseData"]["translatedText"]
-        except:
+        except Exception:
             return text
 
-# ── SUNUCU BAŞLATMA (En kritik kısım) ──────────
+# ── SUNUCU BAŞLATMA ─────────────────────────────
 if __name__ == "__main__":
     import uvicorn
-
-    # Railway'in verdiği dinamik portu yakala
     port = int(os.environ.get("PORT", 8080))
-
-    # 0.0.0.0 hostu dış dünyaya açılmak için zorunludur
     uvicorn.run(app, host="0.0.0.0", port=port)
