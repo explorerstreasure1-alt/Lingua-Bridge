@@ -33,9 +33,6 @@ app.add_middleware(
 )
 
 # ── Whisper model (startup'ta yükle) ─────────────────────
-# "tiny" = hızlı, az RAM (500MB)
-# "base" = daha doğru (1GB)
-# "small" = en iyi denge (2GB) — Railway free tier için tiny önerilir
 WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL", "tiny")
 DEVICE             = os.getenv("DEVICE", "cpu")
 COMPUTE_TYPE       = "int8" if DEVICE == "cpu" else "float16"
@@ -66,16 +63,10 @@ async def transcribe(
     source_lang: str  = Form("tr"),
     target_lang: str  = Form("en"),
 ):
-    """
-    Ses dosyasını alır, metne çevirir, hedef dile çevirir.
-    Desteklenen formatlar: webm, ogg, mp4, wav, mp3
-    """
     if not whisper_model:
         return JSONResponse({"error": "Model yükleniyor, bekle"}, status_code=503)
 
     start = time.time()
-
-    # Ses dosyasını geçici dosyaya kaydet
     audio_bytes = await audio.read()
     if len(audio_bytes) < 1000:
         return JSONResponse({"error": "Ses çok kısa"}, status_code=400)
@@ -90,19 +81,13 @@ async def transcribe(
         tmp_path = tmp.name
 
     try:
-        # Whisper ile transkripsiyon
-        # source_lang: "tr", "en", "ru" vb. (ISO 639-1)
-        # None geçilirse otomatik algılar ama yavaşlar
         whisper_lang = source_lang if source_lang != "auto" else None
-
         segments, info = whisper_model.transcribe(
             tmp_path,
             language=whisper_lang,
             beam_size=3,
-            vad_filter=True,          # Sessizliği atla
-            vad_parameters={
-                "min_silence_duration_ms": 300
-            }
+            vad_filter=True,
+            vad_parameters={"min_silence_duration_ms": 300}
         )
 
         transcript = " ".join(seg.text.strip() for seg in segments).strip()
@@ -116,9 +101,7 @@ async def transcribe(
                 "ms": int((time.time() - start) * 1000)
             })
 
-        # Çeviri
         translated = await do_translate(transcript, source_lang, target_lang)
-
         ms = int((time.time() - start) * 1000)
         log.info(f"[{source_lang}→{target_lang}] '{transcript[:40]}' → '{translated[:40]}' ({ms}ms)")
 
@@ -128,14 +111,10 @@ async def transcribe(
             "detected_lang": detected_lang,
             "ms":            ms
         }
-
     finally:
-        try:
-            os.unlink(tmp_path)
-        except:
-            pass
+        try: os.unlink(tmp_path)
+        except: pass
 
-# ── Sadece çeviri endpoint'i ─────────────────────────────
 @app.post("/translate")
 async def translate_endpoint(body: dict):
     text        = body.get("text", "")
@@ -146,37 +125,26 @@ async def translate_endpoint(body: dict):
     translated = await do_translate(text, source_lang, target_lang)
     return {"translated": translated, "original": text}
 
-# ── Çeviri fonksiyonu ────────────────────────────────────
 async def do_translate(text: str, from_lang: str, to_lang: str) -> str:
-    """MyMemory → Lingva fallback"""
     if from_lang == to_lang:
         return text
-
-    # 1. MyMemory (ücretsiz, günlük 5000 karakter)
     try:
         result = await mymemory_translate(text, from_lang, to_lang)
         if result and result != text:
             return result
     except Exception as e:
         log.warning(f"MyMemory başarısız: {e}")
-
-    # 2. Lingva fallback
     try:
         result = await lingva_translate(text, from_lang, to_lang)
         if result:
             return result
     except Exception as e:
         log.warning(f"Lingva başarısız: {e}")
-
-    return text  # Orijinal metni döndür
+    return text
 
 async def mymemory_translate(text: str, from_lang: str, to_lang: str) -> str:
     url = "https://api.mymemory.translated.net/get"
-    params = {
-        "q": text,
-        "langpair": f"{from_lang}|{to_lang}",
-        "de": "translate@linguabridge.app"
-    }
+    params = {"q": text, "langpair": f"{from_lang}|{to_lang}", "de": "translate@linguabridge.app"}
     async with httpx.AsyncClient(timeout=8.0) as client:
         r = await client.get(url, params=params)
         j = r.json()
@@ -185,11 +153,7 @@ async def mymemory_translate(text: str, from_lang: str, to_lang: str) -> str:
         raise Exception(f"Status: {j.get('responseStatus')}")
 
 async def lingva_translate(text: str, from_lang: str, to_lang: str) -> str:
-    instances = [
-        "https://lingva.ml",
-        "https://translate.plausibility.cloud",
-        "https://lingva.lunar.icu",
-    ]
+    instances = ["https://lingva.ml", "https://translate.plausibility.cloud", "https://lingva.lunar.icu"]
     import urllib.parse
     encoded = urllib.parse.quote(text)
     async with httpx.AsyncClient(timeout=6.0) as client:
@@ -199,14 +163,10 @@ async def lingva_translate(text: str, from_lang: str, to_lang: str) -> str:
                 r = await client.get(url)
                 if r.status_code == 200:
                     j = r.json()
-                    if j.get("translation"):
-                        return j["translation"]
-            except:
-                continue
+                    if j.get("translation"): return j["translation"]
+            except: continue
     raise Exception("Tüm Lingva instance'ları başarısız")
 
-# ── WebSocket: gerçek zamanlı ses akışı ──────────────────
-# (isteğe bağlı — HTTP /transcribe daha stabil)
 @app.websocket("/ws/transcribe")
 async def ws_transcribe(ws: WebSocket):
     await ws.accept()
@@ -214,14 +174,12 @@ async def ws_transcribe(ws: WebSocket):
     try:
         while True:
             data = await ws.receive_json()
-            # data: { audio_b64, source_lang, target_lang }
             import base64
             audio_bytes = base64.b64decode(data.get("audio_b64", ""))
             source_lang = data.get("source_lang", "tr")
             target_lang = data.get("target_lang", "en")
 
-            if len(audio_bytes) < 1000:
-                continue
+            if len(audio_bytes) < 1000: continue
 
             with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as tmp:
                 tmp.write(audio_bytes)
@@ -237,18 +195,20 @@ async def ws_transcribe(ws: WebSocket):
                 transcript = " ".join(s.text.strip() for s in segments).strip()
                 if transcript:
                     translated = await do_translate(transcript, source_lang, target_lang)
-                    await ws.send_json({
-                        "transcript": transcript,
-                        "translated": translated,
-                        "detected":   info.language
-                    })
+                    await ws.send_json({"transcript": transcript, "translated": translated, "detected": info.language})
             finally:
                 try: os.unlink(tmp_path)
                 except: pass
-
     except WebSocketDisconnect:
         log.info("WebSocket kapandı")
     except Exception as e:
         log.error(f"WebSocket hata: {e}")
         try: await ws.close()
         except: pass
+
+# --- SUNUCU ÇALIŞTIRMA AYARI (DUVARIN DİBİNDE OLMALI) ---
+if __name__ == "__main__":
+    import uvicorn
+    import os
+    port = int(os.environ.get("PORT", 8080))
+    uvicorn.run(app, host="0.0.0.0", port=port)
