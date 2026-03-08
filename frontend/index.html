@@ -18,7 +18,7 @@
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html{height:100%}
 body{font-family:var(--font);background:var(--bg);color:var(--text);
-  height:100dvh;overflow:hidden;display:flex;flex-direction:column;
+  min-height:100dvh;display:flex;flex-direction:column;
   -webkit-font-smoothing:antialiased;
   touch-action:manipulation}
 body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
@@ -31,13 +31,13 @@ body::after{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
   background:radial-gradient(ellipse 55% 35% at 85% 15%,rgba(34,211,238,0.06),transparent 60%),
   radial-gradient(ellipse 45% 30% at 15% 75%,rgba(167,139,250,0.05),transparent 60%)}
 
-.screen{position:absolute;inset:0;z-index:1;display:flex;flex-direction:column}
+.screen{position:fixed;inset:0;z-index:1;display:flex;flex-direction:column;overflow:hidden}
 .screen.hidden{display:none}
 
 /* ══ LOBBY ══ */
-#lobby{align-items:center;overflow-y:auto;overflow-x:hidden;
+#lobby{align-items:center;overflow-y:scroll;overflow-x:hidden;
   padding:0 16px 40px;scrollbar-width:thin;scrollbar-color:var(--rim2) transparent;
-  -webkit-overflow-scrolling:touch}
+  -webkit-overflow-scrolling:touch;overscroll-behavior:contain}
 
 .hero{width:100%;max-width:460px;padding:28px 0 18px;
   display:flex;flex-direction:column;align-items:center}
