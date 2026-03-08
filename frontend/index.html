@@ -319,22 +319,7 @@ select option{background:var(--s1)}
     </div>
   </div>
 
-  <!-- Backend URL ayarı -->
-  <div class="api-banner" id="api-banner">
-    <div>⚙️ <strong>Backend URL</strong> — Railway'den aldığın URL'yi buraya yapıştır</div>
-    <div style="font-size:11px;margin-top:2px;opacity:.8">
-      Railway deploy sonrası: <code>https://xxx.up.railway.app</code> formatında olur
-    </div>
-    <input
-      type="url" id="backend-url"
-      placeholder="https://linguabridge-xxx.up.railway.app"
-      oninput="onBackendInput(this)"
-    />
-    <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
-      <button class="save-btn" onclick="saveBackend()">💾 Kaydet & Test Et</button>
-      <span id="backend-status" style="font-size:11px"></span>
-    </div>
-  </div>
+
 
   <!-- Dil Ayarları -->
   <div class="panel">
@@ -392,7 +377,7 @@ select option{background:var(--s1)}
       </div>
     </div>
     <div class="alert ac" style="margin-top:10px;font-size:11px">
-      💡 Backend kuruluysa tüm tarayıcılarda ses tanıma çalışır. Kurulu değilse Chrome/Edge'de çalışır.
+      💡 Groq Whisper AI ile tüm tarayıcılarda çalışır ✅
     </div>
   </div>
 
@@ -442,7 +427,7 @@ select option{background:var(--s1)}
     <p class="hint">
       Davet linkini WhatsApp / Telegram ile gönder.<br>
       Karşı taraf açınca kod otomatik girer — sadece "Ara"ya basar.<br>
-      <b>Backend kuruluysa Firefox & Safari da tam çalışır ✅</b>
+      <b>Groq AI ile Firefox & Safari da tam çalışır ✅</b>
     </p>
   </div>
 
@@ -474,7 +459,7 @@ select option{background:var(--s1)}
   </div>
 
   <!-- STT mode indicator -->
-  <div class="stt-mode" id="stt-mode">🎙 Backend Whisper aktif</div>
+  <div class="stt-mode" id="stt-mode">🎙 Groq Whisper aktif</div>
 
   <!-- Translation panel -->
   <div class="tpanel" id="tpanel">
@@ -570,8 +555,10 @@ let recog=null, timerID=null, seconds=0;
 let waveIDs={}, pendingQ=[], sendDebounce=null;
 
 // Backend Whisper STT
-let backendURL = localStorage.getItem('lb_backend') || '';
-let useBackend  = false;   // true when backend is reachable
+const GROQ_API_KEY = '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';
+const GROQ_STT_URL = 'https://api.groq.com/openai/v1/audio/transcriptions';
+let backendURL = '';
+let useBackend = true;
 let mediaRec    = null;    // MediaRecorder for backend mode
 let recChunks   = [];      // Audio chunks
 
@@ -579,26 +566,12 @@ let recChunks   = [];      // Audio chunks
    BOOT
 ══════════════════════════════════════ */
 window.addEventListener('DOMContentLoaded', () => {
-  // Restore saved backend URL
-  if (backendURL) {
-    document.getElementById('backend-url').value = backendURL;
-    testBackend(backendURL).then(ok => {
-      if (ok) {
-        useBackend = true;
-        document.getElementById('backend-status').textContent = '✅ Bağlı';
-        document.getElementById('backend-status').style.color = 'var(--emerald)';
-      }
-    });
-  }
   initPeer();
   detectSTRSupport();
 });
 
 function detectSTRSupport() {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR && !backendURL) {
-    toast('⚠️ Firefox/Safari: Backend URL gir → tüm tarayıcılarda çalışır', 6000);
-  }
+  // Groq API aktif — tüm tarayıcılarda çalışır
 }
 
 /* ══════════════════════════════════════
@@ -925,20 +898,27 @@ async function sendToWhisper(blob) {
   const myLang    = document.getElementById('my-lang').value;
   const theirLang = document.getElementById('their-lang').value;
 
-  const form = new FormData();
   const ext  = blob.type.includes('ogg') ? 'ogg' :
                blob.type.includes('mp4') ? 'mp4' : 'webm';
-  form.append('audio', blob, `audio.${ext}`);
-  form.append('source_lang', myLang);
-  form.append('target_lang', theirLang);
 
-  const r = await fetch(backendURL + '/transcribe', {
+  const form = new FormData();
+  form.append('file', blob, `audio.${ext}`);
+  form.append('model', 'whisper-large-v3-turbo');
+  form.append('response_format', 'text');
+  form.append('language', myLang);
+
+  const r = await fetch(GROQ_STT_URL, {
     method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + GROQ_API_KEY },
     body: form,
-    signal: AbortSignal.timeout(12000)
+    signal: AbortSignal.timeout(15000)
   });
-  if (!r.ok) throw new Error('HTTP ' + r.status);
-  return r.json();
+  if (!r.ok) throw new Error('Groq STT HTTP ' + r.status);
+  const transcript = (await r.text()).trim();
+
+  // Çeviri
+  const translated = await translateText(transcript, myLang, theirLang);
+  return { transcript, translated };
 }
 
 /* ── Mode B: Browser SpeechRecognition (Chrome/Edge) ── */
@@ -1018,20 +998,7 @@ function stopBrowserSTT() {
 ══════════════════════════════════════ */
 async function translateText(text, from, to) {
   if (!text || from === to) return text;
-  // First try backend if available
-  if (useBackend) {
-    try {
-      const r = await fetch(backendURL + '/translate', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({text, source_lang:from, target_lang:to}),
-        signal: AbortSignal.timeout(7000)
-      });
-      const j = await r.json();
-      if (j.translated) return j.translated;
-    } catch(e) { console.warn('[Backend translate]', e); }
-  }
-  // Fallback: MyMemory
+  // MyMemory
   try {
     const r = await fetch(
       `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${from}|${to}&de=user@lb.io`,
