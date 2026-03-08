@@ -27,35 +27,21 @@ app.add_middleware(
 
 WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL", "tiny")
 DEVICE             = os.getenv("DEVICE", "cpu")
-COMPUTE_TYPE       = "int8" if DEVICE == "cpu" else "float16"
 
 whisper_model: WhisperModel = None
-model_ready = False
+model_lock = asyncio.Lock()
 
 
-@app.on_event("startup")
-async def startup():
-    asyncio.create_task(_load_model_background())
-
-
-async def _load_model_background():
-    global whisper_model, model_ready
-    log.info(f"🎙 Whisper '{WHISPER_MODEL_SIZE}' arka planda yükleniyor...")
-    try:
-        loop = asyncio.get_event_loop()
-        whisper_model = await loop.run_in_executor(
-            None,
-            lambda: WhisperModel(
-                WHISPER_MODEL_SIZE,
-                device=DEVICE,
-                compute_type=COMPUTE_TYPE,
-                download_root="/app/models",
-            )
-        )
-        model_ready = True
-        log.info("✅ Whisper hazır!")
-    except Exception as e:
-        log.error(f"❌ Whisper yüklenemedi: {e}")
+def _load_model() -> WhisperModel:
+    log.info(f"🎙 Whisper '{WHISPER_MODEL_SIZE}' yükleniyor...")
+    model = WhisperModel(
+        WHISPER_MODEL_SIZE,
+        device=DEVICE,
+        compute_type="int8",
+        download_root="/app/models",
+    )
+    log.info("✅ Whisper hazır!")
+    return model
 
 
 @app.get("/health")
@@ -74,11 +60,14 @@ async def transcribe(
     source_lang: str  = Form("tr"),
     target_lang: str  = Form("en"),
 ):
-    if not model_ready:
-        return JSONResponse(
-            {"error": "Model henüz hazır değil, lütfen bekleyin"},
-            status_code=503
-        )
+    global whisper_model
+
+    # İlk istekte lazy load
+    if whisper_model is None:
+        async with model_lock:
+            if whisper_model is None:
+                loop = asyncio.get_event_loop()
+                whisper_model = await loop.run_in_executor(None, _load_model)
 
     start = time.time()
     audio_bytes = await audio.read()
