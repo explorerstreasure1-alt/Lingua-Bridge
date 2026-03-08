@@ -556,7 +556,7 @@ let waveIDs={}, pendingQ=[], sendDebounce=null;
 
 // Backend Whisper STT
 const GROQ_API_KEY = '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';
-const GROQ_STT_URL = 'https://api.groq.com/openai/v1/audio/transcriptions';
+const GROQ_STT_URL = '/api/transcribe';
 let backendURL = '';
 let useBackend = true;
 let mediaRec    = null;    // MediaRecorder for backend mode
