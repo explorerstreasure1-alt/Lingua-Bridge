@@ -113,4 +113,5 @@ async def do_translate(text: str, from_lang: str, to_lang: str) -> str:
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8080))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    log.info(f"🚀 Sunucu {port} portunda başlatılıyor...")
+    uvicorn.run("app:app", host="0.0.0.0", port=port, reload=False, workers=1)
