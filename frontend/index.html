@@ -406,7 +406,7 @@ select option{background:var(--card)}
 
 <script>
 "use strict";
-const GROQ_KEY = "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";
+// 🔐 API anahtarı artık istemcide yok! Proxy (backend) ekleyecek.
 const GROQ_URL = "/api/transcribe";
 const ICE = {iceServers:[
   {urls:"stun:stun.l.google.com:19302"},
@@ -508,8 +508,14 @@ function startSTT(){
   if(mrec&&mrec.state!=="inactive")return;
   if(!ls)return;
   const as=new MediaStream(ls.getAudioTracks());
-  const mt=["audio/webm;codecs=opus","audio/webm","audio/ogg;codecs=opus","audio/mp4"].find(m=>MediaRecorder.isTypeSupported(m))||"";
-  mrec=new MediaRecorder(as,mt?{mimeType:mt}:{});
+  // ✅ Düzeltme: Desteklenen MIME tipini kontrol et, yoksa çökme.
+  const mt=["audio/webm;codecs=opus","audio/webm","audio/ogg;codecs=opus","audio/mp4"].find(m=>MediaRecorder.isTypeSupported(m));
+  if(!mt){
+    console.warn("MediaRecorder desteklenmiyor");
+    toast("❌ Ses kaydı desteklenmiyor",4000);
+    return;
+  }
+  mrec=new MediaRecorder(as,{mimeType:mt});
   chunks=[];
   mrec.ondataavailable=e=>{if(e.data.size>0)chunks.push(e.data);};
   mrec.onstop=procAudio;
@@ -524,7 +530,11 @@ async function procAudio(){
   if(!chunks.length)return;
   const mt=mrec?.mimeType||"audio/webm";
   const blob=new Blob(chunks,{type:mt});chunks=[];
-  if(blob.size<3000){if(transOn&&!micOff)setTimeout(nextSeg,200);return;}
+  if(blob.size<3000){
+    // ✅ Düzeltme: Sessizlikte dahi bir sonraki segmenti planla.
+    if(transOn&&!micOff)setTimeout(nextSeg,200);
+    return;
+  }
   document.getElementById("recbadge").classList.add("on");
   wv("wvm",true);
   try{
@@ -534,7 +544,8 @@ async function procAudio(){
     fd.append("model","whisper-large-v3-turbo");
     fd.append("response_format","text");
     fd.append("language",document.getElementById("my-lang").value);
-    const r=await fetch(GROQ_URL,{method:"POST",headers:{"Authorization":"Bearer "+GROQ_KEY},body:fd,signal:AbortSignal.timeout(15000)});
+    // 🔐 API anahtarı burada gönderilmiyor, proxy ekleyecek.
+    const r=await fetch(GROQ_URL,{method:"POST",body:fd,signal:AbortSignal.timeout(15000)});
     if(!r.ok)throw new Error("Groq "+r.status);
     const tr=(await r.text()).trim();
     if(!tr)return;
@@ -619,6 +630,9 @@ function toggleChat(){
 }
 function endCall(){
   stopSTT();stopTimer();
+  // ✅ Düzeltme: Dalga interval'lerini temizle.
+  for(const id of Object.values(wvID)) clearInterval(id);
+  wvID={};
   if(window.speechSynthesis)window.speechSynthesis.cancel();
   if(mc){try{mc.close();}catch(e){}mc=null;}
   if(dc){try{dc.close();}catch(e){}dc=null;}
@@ -630,6 +644,8 @@ function endCall(){
 }
 function callEnded(msg){
   stopSTT();stopTimer();
+  for(const id of Object.values(wvID)) clearInterval(id);
+  wvID={};
   if(window.speechSynthesis)window.speechSynthesis.cancel();
   if(ls){ls.getTracks().forEach(t=>t.stop());ls=null;}
   micOff=camOff=chatOpen=connected=false;pQ=[];
